@@ -1,165 +1,107 @@
-#define LEFT_LED_PIN 9     // PWM-capable pin
-#define RIGHT_LED_PIN 10   // PWM-capable pin
+#define LEFT_LED_PIN 9     // PWM pin
+#define RIGHT_LED_PIN 10   // PWM pin
 
 unsigned long lastBlinkTime = 0;
-unsigned long lastButtonPressTimeLeft = 0;
-unsigned long lastButtonPressTimeRight = 0;
-unsigned long lastHazardTime = 0;
-
-bool leftIndicatorOn = false;
-bool rightIndicatorOn = false;
-bool hazardLightsOn = false;
-
-bool leftLedState = LOW;
-bool rightLedState = LOW;
-
-char serialCmd;
-unsigned long taskSchedulerTime = 0;
+unsigned long lastPressTime = 0;
+bool leftIndicator = false;
+bool rightIndicator = false;
+bool hazardMode = false;
+bool ledState = false;
 
 void setup() {
   pinMode(LEFT_LED_PIN, OUTPUT);
   pinMode(RIGHT_LED_PIN, OUTPUT);
   Serial.begin(9600);
+
+  Serial.println("---------------");
   Serial.println("System Initialized");
-  Serial.println("Press keys:");
+  Serial.println("Enter:");
   Serial.println("L - Left Indicator");
   Serial.println("R - Right Indicator");
-  Serial.println("H - Hazard Lights ON");
-  Serial.println("X - Hazard Lights OFF");
+  Serial.println("H - Hazard Mode ON");
+  Serial.println("X - Deactivate Hazard");
+  Serial.println("---------------");
 }
 
 void loop() {
   unsigned long currentMillis = millis();
 
-  // 100ms Task Scheduler
-  if (currentMillis - taskSchedulerTime >= 100) {
-    taskSchedulerTime = currentMillis;
-    handleBlinking(currentMillis);
-  }
-
-  // Handle UART commands
+  // Handle Serial Input
   if (Serial.available()) {
-    serialCmd = Serial.read();
+    char input = Serial.read();
 
-    if (serialCmd == 'L') {
-      if (currentMillis - lastButtonPressTimeLeft >= 1000) {
-        lastButtonPressTimeLeft = currentMillis;
+    Serial.println("---------------");
+    Serial.print("Received command: ");
+    Serial.println(input);
 
-        if (!leftIndicatorOn) {
-          leftIndicatorOn = true;
-          rightIndicatorOn = false;
-          hazardLightsOn = false;
-          Serial.println("Left Indicator ON");
-          Serial.println("Right Indicator OFF");
-          Serial.println("Hazard Lights OFF");
-        } else {
-          leftIndicatorOn = false;
-          Serial.println("Left Indicator OFF");
-        }
-
-        publishLEDStatus();
-        publishIndicatorStatus();
+    if (input == 'L' || input == 'l') {
+      if (hazardMode) {
+        Serial.println("Deactivating Hazard Mode via Left Button...");
+        hazardMode = false;
       }
+      if (!leftIndicator) {
+        Serial.println("Left Indicator ON");
+        Serial.println("Right Indicator OFF");
+      } else {
+        Serial.println("Left Indicator OFF");
+      }
+      leftIndicator = !leftIndicator;
+      rightIndicator = false;
     }
 
-    else if (serialCmd == 'R') {
-      if (currentMillis - lastButtonPressTimeRight >= 1000) {
-        lastButtonPressTimeRight = currentMillis;
-
-        if (!rightIndicatorOn) {
-          rightIndicatorOn = true;
-          leftIndicatorOn = false;
-          hazardLightsOn = false;
-          Serial.println("Right Indicator ON");
-          Serial.println("Left Indicator OFF");
-          Serial.println("Hazard Lights OFF");
-        } else {
-          rightIndicatorOn = false;
-          Serial.println("Right Indicator OFF");
-        }
-
-        publishLEDStatus();
-        publishIndicatorStatus();
+    else if (input == 'R' || input == 'r') {
+      if (hazardMode) {
+        Serial.println("Deactivating Hazard Mode via Right Button...");
+        hazardMode = false;
       }
+      if (!rightIndicator) {
+        Serial.println("Right Indicator ON");
+        Serial.println("Left Indicator OFF");
+      } else {
+        Serial.println("Right Indicator OFF");
+      }
+      rightIndicator = !rightIndicator;
+      leftIndicator = false;
     }
 
-    else if (serialCmd == 'H') {
-      hazardLightsOn = true;
-      leftIndicatorOn = false;
-      rightIndicatorOn = false;
-      Serial.println("Hazard Lights Activated");
-      publishLEDStatus();
-      publishIndicatorStatus();
+    else if (input == 'H' || input == 'h') {
+      Serial.println("Hazard Mode Activated");
+      hazardMode = true;
+      leftIndicator = false;
+      rightIndicator = false;
     }
 
-    else if (serialCmd == 'X') {
-      if (hazardLightsOn) {
-        hazardLightsOn = false;
-        analogWrite(LEFT_LED_PIN, 0);
-        analogWrite(RIGHT_LED_PIN, 0);
-        Serial.println("Hazard Lights Deactivated");
-        publishLEDStatus();
-        publishIndicatorStatus();
-      }
+    else if (input == 'X' || input == 'x') {
+      Serial.println("Hazard Mode Deactivated");
+      hazardMode = false;
+    }
+
+    publishStatus();
+    Serial.println("---------------");
+  }
+
+  // Blink logic every 300ms
+  if (currentMillis - lastBlinkTime >= 300) {
+    lastBlinkTime = currentMillis;
+    ledState = !ledState;
+
+    if (hazardMode) {
+      analogWrite(LEFT_LED_PIN, ledState ? 255 : 0);
+      analogWrite(RIGHT_LED_PIN, ledState ? 255 : 0);
+    } else {
+      analogWrite(LEFT_LED_PIN, (leftIndicator && ledState) ? 255 : 0);
+      analogWrite(RIGHT_LED_PIN, (rightIndicator && ledState) ? 255 : 0);
     }
   }
 }
 
-// Handles blinking for hazard and indicators
-void handleBlinking(unsigned long currentMillis) {
-  if (hazardLightsOn) {
-    if (currentMillis - lastHazardTime >= 300) {
-      lastHazardTime = currentMillis;
-      leftLedState = !leftLedState;
-      rightLedState = leftLedState;
-
-      analogWrite(LEFT_LED_PIN, leftLedState ? 255 : 0);
-      analogWrite(RIGHT_LED_PIN, rightLedState ? 255 : 0);
-    }
-  } else {
-    // Left Indicator
-    if (leftIndicatorOn) {
-      if (currentMillis - lastBlinkTime >= 300) {
-        lastBlinkTime = currentMillis;
-        leftLedState = !leftLedState;
-        analogWrite(LEFT_LED_PIN, leftLedState ? 255 : 0);
-      }
-    } else {
-      analogWrite(LEFT_LED_PIN, 0);
-      leftLedState = LOW;
-    }
-
-    // Right Indicator
-    if (rightIndicatorOn) {
-      if (currentMillis - lastBlinkTime >= 300) {
-        lastBlinkTime = currentMillis;
-        rightLedState = !rightLedState;
-        analogWrite(RIGHT_LED_PIN, rightLedState ? 255 : 0);
-      }
-    } else {
-      analogWrite(RIGHT_LED_PIN, 0);
-      rightLedState = LOW;
-    }
-  }
-}
-
-// Publish LED ON/OFF status
-void publishLEDStatus() {
-  Serial.print("Left LED Status: ");
-  Serial.println(leftIndicatorOn || hazardLightsOn ? "ON" : "OFF");
-
-  Serial.print("Right LED Status: ");
-  Serial.println(rightIndicatorOn || hazardLightsOn ? "ON" : "OFF");
-}
-
-// Publish Indicator State
-void publishIndicatorStatus() {
+void publishStatus() {
   Serial.print("Left Indicator: ");
-  Serial.println(leftIndicatorOn ? "ENGAGED" : "DISENGAGED");
+  Serial.println(leftIndicator ? "ENGAGED" : "DISENGAGED");
 
   Serial.print("Right Indicator: ");
-  Serial.println(rightIndicatorOn ? "ENGAGED" : "DISENGAGED");
+  Serial.println(rightIndicator ? "ENGAGED" : "DISENGAGED");
 
-  Serial.print("Hazard Light: ");
-  Serial.println(hazardLightsOn ? "ENGAGED" : "DISENGAGED");
+  Serial.print("Hazard Mode: ");
+  Serial.println(hazardMode ? "ACTIVE" : "INACTIVE");
 }
